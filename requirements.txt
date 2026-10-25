@@ -1,0 +1,7 @@
+langchain
+langchain-community
+langchain-groq
+langgraph
+langsmith
+ragas
+pinecone
