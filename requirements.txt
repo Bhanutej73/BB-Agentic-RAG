@@ -5,3 +5,6 @@ langgraph
 langsmith
 ragas
 pinecone
+pinecone-text
+langchain_huggingface
+sentence-transformers

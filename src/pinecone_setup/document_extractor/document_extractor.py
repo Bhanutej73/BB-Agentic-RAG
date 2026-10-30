@@ -29,6 +29,7 @@ class DocumentExtractor:
             except Exception as e:
                 logging.error(f"Error occurred while extracting data from {url}: {str(e)}")
                 raise AgenticException(e,sys)
+        logging.info("Successfully extracted and split LangChain documents.")
         return self.langchain_documents
 
     def extract_langgraph_data(self):
@@ -41,6 +42,7 @@ class DocumentExtractor:
             except Exception as e:
                 logging.error(f"Error occurred while extracting data from {url}: {str(e)}")
                 raise AgenticException(e,sys)
+        logging.info("Successfully extracted and split LangGraph documents.")
         return self.langgraph_documents
     
     
