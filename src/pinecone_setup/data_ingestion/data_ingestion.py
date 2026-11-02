@@ -143,10 +143,10 @@ if __name__=="__main__":
     try:
         embeddings=HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2",model_kwargs={"device":"cpu"},encode_kwargs={"normalize_embeddings":True})
         ingestion=DataIngestion(document_extractor=DocumentExtractor(LANGCHAIN_DATA_SOURCE,LANGGRAPH_DATA_SOURCE,text_splitter),embeddings=embeddings)
-        # for index in VECTOR_INDEXES:
-        #     logging.info("Starting to upload vectors in classic indexes")
-        #     ingestion.upload_to_classic_vector_db(index_name=index)
-        #     logging.info("Upload done in classic indexes")
+        for index in VECTOR_INDEXES:
+            logging.info("Starting to upload vectors in classic indexes")
+            ingestion.upload_to_classic_vector_db(index_name=index)
+            logging.info("Upload done in classic indexes")
         for index in HYBRID_INDEXES:
             logging.info("Starting to upload vectors in hybrid indexes")
             ingestion.upload_to_hybrid_vector_db(index_name=index)
