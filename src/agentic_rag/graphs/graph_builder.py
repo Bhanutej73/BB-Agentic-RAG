@@ -69,8 +69,8 @@ if __name__=="__main__":
     retriever=Retriever(query_utils=query_util)
     graph_builder=Graph(llm,Agent,Generator,query_rewriter,retriever,Routers,InitState,Fallback)
     compiled_graph = graph_builder()
-    # png = compiled_graph.get_graph().draw_mermaid_png()
-    # with open("graph.png", "wb") as f:
-    #     f.write(png)
-    response=compiled_graph.invoke({"messages":"What is machine learning"})
-    print(response)
+    png = compiled_graph.get_graph().draw_mermaid_png()
+    with open("graph.png", "wb") as f:
+        f.write(png)
+    # response=compiled_graph.invoke({"messages":"What is machine learning"})
+    # print(response)
