@@ -31,7 +31,7 @@ eval_llm=ChatGroq(api_key=langchain_api_key, model="qwen/qwen3.8-27b")
 eval_llm_wrapper=LangchainLLMWrapper(eval_llm)
 
 class query_utils:
-    def __init__(self, embeddings, pc_client, top_k:int=10):
+    def __init__(self, embeddings, pc_client, top_k:int=5):
         self.embeddings=embeddings
         self.top_k=top_k
         self.pc_client=pc_client
@@ -135,7 +135,7 @@ class query_utils:
 
 if __name__=="__main__":
     try:
-        query="How to install Langchain?"
+        #query="How to install Langchain?"
         path=LANGCHAIN_EVALUATION_DATASET_PATH
         eval_dataset=pd.read_csv(path)
         eval_dataset["reference_contexts"]=eval_dataset["reference_contexts"].apply(ast.literal_eval)
@@ -149,7 +149,12 @@ if __name__=="__main__":
         # print(results)
         dataset=eval_utils.make_dataset(eval_dataset,query_index=query_index)
         eval_results=eval_utils.retrieval_evaluation(dataset)
-        print(eval_results)
+        df=eval_results.to_pandas()
+        df.to_csv("eval_run_2026-11-15.csv", index=False)   # save this first
+        failed = df[df[["llm_context_precision_with_reference", "context_recall"]].isna().any(axis=1)]
+        print(df[["llm_context_precision_with_reference", "context_recall"]].notna().sum())
+        print("failed:")
+        print(failed)
     except Exception as e:
         logging.error(f"Error occurred in main: {str(e)}")
         raise AgenticException(f"Error occurred in main: {str(e)}",sys)

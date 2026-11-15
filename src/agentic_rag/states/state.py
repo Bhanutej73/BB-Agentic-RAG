@@ -10,3 +10,8 @@ class AgentState(TypedDict):
     documents: list[Document]
     messages: Annotated[Sequence[BaseMessage], add_messages]
     selected_db:str
+    no_of_retries:int
+    max_retries:int
+    next_step:str
+
+    

@@ -11,7 +11,7 @@ class Retriever:
         self.query_utils=query_utils
         
 
-    def retriever_helper(self,state:AgentState,indexes):
+    def retriever_helper(self,state:AgentState,indexes=HYBRID_INDEXES):
         try:
             if state['selected_db']=="langchain-db":
                 index_name=indexes["langchain-hybrid-index"]["name"]
@@ -25,12 +25,15 @@ class Retriever:
             raise AgenticException(e,sys)
         
 
-    def retriever(self,state:AgentState,indexes):
-        index_name,index_host=self.retriever_helper(indexes)
+    def __call__(self,state:AgentState):
+        """
+        Retrieves the relevant documents for the vector database
+        """
+        index_name,index_host=self.retriever_helper(state)
         try:
             query=state["current_question"]
             retrieved_docs=self.query_utils.query_hybrid_index(index_name,index_host,query)
-            return retrieved_docs
+            return {"documents": retrieved_docs}
         except Exception as e:
             logging.error("Error has occurred while retrieving data from pinecone",{e})
             raise AgenticException(e,sys)

@@ -6,14 +6,16 @@ from pydantic import BaseModel,Field
 from langchain_core.messages import AIMessage,HumanMessage,SystemMessage
 
 class Route(BaseModel):
-    retriever:Literal["langchain-db", "langgraph-db", "END"]
+     """Choose which knowledge source should be searched for the question."""
+     retriever: Literal["langchain-db", "langgraph-db"] = Field(
+        description="The documentation source best suited to answer the question."  
+    )
 
 class Agent:
     def __init__(self,llm):
-        retriever:Literal["langchain-db", "langgraph-db", "END"]
         self.llm=llm
 
-    def __call__(self,state:AgentState)->dict:
+    def __call__(self,state:AgentState)->dict:  
 
         """
             Routes to the appropriate retriever tool based on the question in the state
@@ -26,9 +28,14 @@ class Agent:
         """
 
         question=state["current_question"]
-        response = self.llm.with_structured_output(Route).invoke([
+        response = self.llm.with_structured_output(Route, method="json_mode").invoke([
         SystemMessage(
-            content=f"You are an assistant for routing to the respective retriever based on the {question}, if the question is not related to the vector databases, route it to END"
+            content="""You are a routing assistant. Do NOT answer the user's question.
+                    Decide which documentation source should be searched for the question.
+
+                    Respond ONLY with a valid JSON object in exactly this format:
+                    {"retriever": "<one of: langchain-db, langgraph-db>"}
+                    """
         ),
         HumanMessage(content=question)
     ])
