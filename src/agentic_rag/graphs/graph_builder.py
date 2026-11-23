@@ -7,6 +7,8 @@ from src.agentic_rag.nodes.query_rewriter_node import query_rewriter
 from src.agentic_rag.nodes.retriever_node import Retriever
 from src.agentic_rag.nodes.routers import Routers
 from langgraph.graph import StateGraph,START,END
+from langgraph.types import RetryPolicy, TimeoutPolicy
+from langgraph.errors import NodeError
 from src.pinecone_setup.data import VECTOR_INDEXES,HYBRID_INDEXES
 from IPython.display import Image,display
 from src.agentic_rag.llm.groqllm import GroqLLM
@@ -21,7 +23,7 @@ load_dotenv()
 
 
 class Graph:
-    def __init__(self,llm,Agent:Agent,Generator:Generator,query_rewriter:query_rewriter,Retriever:Retriever,Routers:Routers,InitState:InitState,Fallback:Fallback):
+    def __init__(self,llm,Agent:Agent,Generator:Generator,query_rewriter:query_rewriter,Retriever:Retriever,Routers:Routers,InitState:InitState,Fallback:Fallback, exception:AgenticException):
         self.llm=llm
         self.graph=StateGraph(AgentState)
         self.agent=Agent(llm)
@@ -31,11 +33,12 @@ class Graph:
         self.router=Routers(llm)
         self.init_state=InitState()
         self.fallback=Fallback()
+        self.exception=AgenticException()
 
     def __call__(self):
         #defining nodes
         self.graph.add_node("init_state",self.init_state)
-        self.graph.add_node("agent",self.agent)
+        self.graph.add_node("agent",self.agent,retry_policy=RetryPolicy(max_attempts=3),error_handler=self.exception.agentnode_error)
         self.graph.add_node("retriever",self.retriever)
         self.graph.add_node("generator",self.Generator.generator)
         self.graph.add_node("rewriter",self.query_rewriter)
@@ -67,7 +70,7 @@ if __name__=="__main__":
     llm=GroqLLM().get_llm()
     query_util=query_utils(embeddings, pc_client=pc)
     retriever=Retriever(query_utils=query_util)
-    graph_builder=Graph(llm,Agent,Generator,query_rewriter,retriever,Routers,InitState,Fallback)
+    graph_builder=Graph(llm,Agent,Generator,query_rewriter,retriever,Routers,InitState,Fallback,AgenticException)
     compiled_graph = graph_builder()
     png = compiled_graph.get_graph().draw_mermaid_png()
     with open("graph.png", "wb") as f:

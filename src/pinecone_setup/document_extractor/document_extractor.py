@@ -1,70 +1,131 @@
-from src.pinecone_setup.data import LANGCHAIN_DATA_SOURCE,LANGGRAPH_DATA_SOURCE
-from langchain_community.document_loaders import WebBaseLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter 
-from src.logger.logger import logging
-from src.exception.exception import AgenticException
-logging.basicConfig(level=logging.INFO)
-import sys
-loader = WebBaseLoader()
-text_splitter=RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-
 import re
+import requests
+import logging
 import sys
-from langchain_community.document_loaders import WebBaseLoader
 from langchain_core.documents import Document
+from langchain_text_splitters import (
+    MarkdownHeaderTextSplitter,
+    RecursiveCharacterTextSplitter,
+    Language
+)
+from src.exception.exception import AgenticException
+from src.logger.logger import logging
+from src.pinecone_setup.data import LANGCHAIN_DATA_SOURCE
 
 class DocumentExtractor:
-    def __init__(self, langchain_docs, langgraph_docs, text_spitter):
-        self.langchain_docs = langchain_docs
-        self.langgraph_docs = langgraph_docs
-        self.text_splitter = text_spitter
 
-    def split_text(self, documents):
-        return self.text_splitter.split_documents(documents)
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "Mozilla/5.0 (docs-ingestion)"})
 
-    def _load_pages(self, urls):
-        pages = []
-        for url in urls:
-            try:
-                pages.extend(WebBaseLoader(url).load())
-            except Exception as e:
-                logging.error(f"Error occurred while extracting data from {url}: {str(e)}")
-                raise AgenticException(e, sys)
-        return pages
+    def _load_pages(self, urls, timeout=30, retries=2):
+        docs = []
+        try:
+            for url in urls:
+                md_url = url if url.endswith((".md", ".mdx")) else url.rstrip("/") + ".md"
+            
+                text = None
+                for attempt in range(retries + 1):
+                    try:
+                        r = self.session.get(md_url, timeout=timeout)
+                        r.raise_for_status()
+                        text = r.text
+                        break
+                    except requests.RequestException as e:
+                        if attempt == retries:
+                            logging.warning(f"Skipping {md_url}: {e}")
+            
+                if not text:
+                     continue
+            
+                        # Guard: some sites return an HTML page when no .md version exists
+                if text.lstrip().lower().startswith(("<!doctype", "<html")):
+                    logging.warning(f"Got HTML instead of markdown, skipping {md_url}")
+                    continue
+            
+                docs.append(Document(page_content=text, metadata={"source": url}))
+            
+            logging.info(f"Loaded {len(docs)}/{len(urls)} pages")
+            return docs
+        except Exception as e:
+            logging.error("Erro occurred while leading the pages")
+            raise AgenticException(e,sys)
+        
+    
+    @staticmethod
+    def _clean(md: str) -> str:
+        try:
+            md = re.sub(r"\A---.*?---\s*", "", md, flags=re.S)            # frontmatter
+            md = re.sub(r"^(import|export)\s.+$", "", md, flags=re.M)      # MDX imports/exports
+            md = re.sub(
+                    r"</?(Note|Tip|Warning|Info|Check|Tabs|Tab|Card|CardGroup|Steps|Step|Accordion|AccordionGroup)[^>]*>",
+                    "", md,
+                )
+            return re.sub(r"\n\s*\n+", "\n\n", md).strip()
+        except Exception as e:
+            logging.error("An error occurred while cleaning the documents")
+            raise AgenticException(e,sys)
 
-    # ----- split chunks, used by ingestion -----
-    def extract_langchain_data(self):
-        chunks = self.split_text(self._load_pages(self.langchain_docs))
-        logging.info(f"Extracted and split LangChain documents: {len(chunks)} chunks.")
-        return chunks
+    # ---------- 1. ingestion: full coverage, chunked ----------
+    def extract_for_ingestion(self, urls, min_chars=500, chunk_size=1500, chunk_overlap=150):
+        try:
+            header_splitter = MarkdownHeaderTextSplitter(
+                        headers_to_split_on=[("#", "h1"), ("##", "h2"), ("###", "h3")],
+                        strip_headers=False,
+                    )
+            size_splitter = RecursiveCharacterTextSplitter.from_language(
+                        language=Language.MARKDOWN,
+                        chunk_size=chunk_size,
+                        chunk_overlap=chunk_overlap,
+                    )
+            
+            chunks = []
+            for d in self._load_pages(urls):
+                text = self._clean(d.page_content)
+                if len(text) < min_chars:          # skip stub/redirect/index pages
+                    continue
+            
+                sections = header_splitter.split_text(text)
+                for c in size_splitter.split_documents(sections):
+                    path = " > ".join(c.metadata[h] for h in ("h1", "h2", "h3") if h in c.metadata)
+                    c.metadata.update({**d.metadata, "section": path})
+                    if path:                       # heading path helps embeddings a lot
+                        c.page_content = f"{path}\n\n{c.page_content}"
+                    chunks.append(c)
+            
+            total = sum(len(c.page_content) for c in chunks)
+            logging.info(f"{len(chunks)} chunks | {total} chars | ~{total // 4} tokens to embed")
+            return chunks
+        except Exception as e:
+            logging.error("An error occurred in the ingestion pipeline while extracting documents")
+            raise AgenticException(e,sys)
+        
 
-    def extract_langgraph_data(self):
-        chunks = self.split_text(self._load_pages(self.langgraph_docs))
-        logging.info(f"Extracted and split LangGraph documents: {len(chunks)} chunks.")
-        return chunks
+    # ---------- 2. golden dataset: capped whole pages ----------
+    def extract_for_golden_dataset(self, urls, max_docs=50, max_chars=3000, min_chars=800):
+        docs, seen = [], set()
+        try:
+            for d in self._load_pages(urls):
+                text = self._clean(d.page_content)
+                if len(text) < min_chars or text in seen:
+                    continue
+                seen.add(text)
 
-    # ----- whole pages, used by ragas test set generation -----
-    def extract_whole_docs(self, urls, max_docs=None, max_chars=3000, min_chars=500):
-        cleaned = []
-        for d in self._load_pages(urls):
-            text = re.sub(r"\n\s*\n+", "\n\n", d.page_content).strip()
-            if len(text) >= min_chars:
-                cleaned.append(Document(page_content=text[:max_chars], metadata=d.metadata))
-        if max_docs:
-            cleaned = cleaned[:max_docs]
-        total_chars = sum(len(d.page_content) for d in cleaned)
-        logging.info(f"{len(cleaned)} docs | {total_chars} chars | ~{total_chars // 4} tokens per pass")
-        return cleaned
+                if len(text) > max_chars:          # cut at a paragraph boundary, not mid-sentence
+                    cut = text.rfind("\n\n", 0, max_chars)
+                    text = text[: cut if cut > min_chars else max_chars]
 
-    def extract_langchain_data_without_splitting(self, **kwargs):
-        return self.extract_whole_docs(self.langchain_docs, **kwargs)
+                docs.append(Document(page_content=text, metadata=d.metadata))
+                if len(docs) >= max_docs:
+                    break
 
-    def extract_langgraph_data_without_splitting(self, **kwargs):
-        return self.extract_whole_docs(self.langgraph_docs, **kwargs)
+            total = sum(len(d.page_content) for d in docs)
+            logging.info(f"{len(docs)} docs | {total} chars | ~{total // 4} tokens per pass")
+            return docs
+        except Exception as e:
+            raise AgenticException(e,sys)
 
 if __name__=="__main__":
-    doc_extractor=DocumentExtractor(LANGCHAIN_DATA_SOURCE,LANGGRAPH_DATA_SOURCE,text_splitter)
-    langchain_docs=doc_extractor.extract_langchain_data()
-    langgraph_docs=doc_extractor.extract_langgraph_data()
-    print(langchain_docs)
-    print(langgraph_docs)
+    extractor=DocumentExtractor()
+    documents=extractor.extract_for_ingestion(urls=LANGCHAIN_DATA_SOURCE)
+    print(documents)

@@ -57,7 +57,7 @@ class DataIngestion:
             
     def generate_langchain_embeddings(self):
         try:
-            docs_to_embedd=self.document_extractor.extract_langchain_data()
+            docs_to_embedd=self.document_extractor.extract_for_ingestion(urls=LANGCHAIN_DATA_SOURCE)
             text=[doc.page_content for doc in docs_to_embedd]
             # self.sparse_embeddings.fit(text)
             # sparse_vectors=self.sparse_embeddings.encode_documents(text)
@@ -70,7 +70,7 @@ class DataIngestion:
 
     def generate_langgraph_embeddings(self):
         try:
-            docs_to_embedd=self.document_extractor.extract_langgraph_data()
+            docs_to_embedd=self.document_extractor.extract_for_ingestion(urls=LANGGRAPH_DATA_SOURCE)
             text=[doc.page_content for doc in docs_to_embedd]
             # self.sparse_embeddings.fit(text)
             #sparse_vectors=self.sparse_embeddings.encode_documents(text)
@@ -142,7 +142,7 @@ class DataIngestion:
 if __name__=="__main__":
     try:
         embeddings=HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2",model_kwargs={"device":"cpu"},encode_kwargs={"normalize_embeddings":True})
-        ingestion=DataIngestion(document_extractor=DocumentExtractor(LANGCHAIN_DATA_SOURCE,LANGGRAPH_DATA_SOURCE,text_splitter),embeddings=embeddings)
+        ingestion=DataIngestion(document_extractor=DocumentExtractor(),embeddings=embeddings)
         for index in VECTOR_INDEXES:
             logging.info("Starting to upload vectors in classic indexes")
             ingestion.upload_to_classic_vector_db(index_name=index)

@@ -33,8 +33,8 @@ load_dotenv(override=True)
 BATCH_DIR = Path("src/test_dataset/batches")
 DRAFT_PATH = Path("src/test_dataset/golden_v1_draft.csv")
 PAGES_PER_BATCH = 3             # pages sent to ragas per batch
-MAX_CHARS = 3000                # per page, keeps a batch around 3k tokens
-MIN_CHARS = 500                 # skip near-empty pages
+MAX_CHARS = 4500                # per page, keeps a batch around 3k tokens
+MIN_CHARS = 2500                 # skip near-empty pages
 QUESTIONS_PER_BATCH = 8
 PAUSE_SECONDS = 90              # lets the per-minute token window reset
 MAX_BATCHES_PER_SOURCE = 1      # per run; raise it (or set None for all) once one batch works
@@ -142,7 +142,6 @@ def merge_batches():
     df.to_csv(DRAFT_PATH, index=False)
     logging.info(f"Merged {len(frames)} batch files into {DRAFT_PATH} ({len(df)} rows)")
 
-
 # ---------- main ----------
 if __name__ == "__main__":
     try:
@@ -152,17 +151,22 @@ if __name__ == "__main__":
 
         remove_empty_batches()
 
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        doc_extractor = DocumentExtractor(LANGCHAIN_DATA_SOURCE, LANGGRAPH_DATA_SOURCE, text_splitter)
+        doc_extractor = DocumentExtractor()
         generator = TestsetGenerator(llm=generator_llm, embedding_model=embeddings)
 
         sources = {
-            "langchain": doc_extractor.extract_langchain_data_without_splitting,
-           # "langgraph": doc_extractor.extract_langgraph_data_without_splitting,
+            "langchain": LANGCHAIN_DATA_SOURCE,
+            # "langgraph": LANGGRAPH_DATA_SOURCE,
         }
-        for name, loader in sources.items():
-            docs = loader(max_chars=MAX_CHARS, min_chars=MIN_CHARS)
+        for name, urls in sources.items():
+            docs = doc_extractor.extract_for_golden_dataset(
+                urls,
+                max_docs=PAGES_PER_BATCH * (MAX_BATCHES_PER_SOURCE or 20),
+                max_chars=MAX_CHARS,
+                min_chars=MIN_CHARS,
+            )
             if not run_source(name, docs, generator):
+                
                 logging.info("Stopped early. Rerun later to resume from the next batch.")
                 break
         else:
